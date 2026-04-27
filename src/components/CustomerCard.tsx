@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { PhoneCall, MapPin, Pencil, Trash2, Calendar, Map, CheckCircle, Clock, Wrench, X } from 'lucide-react';
+import React from 'react';
+import { PhoneCall, MapPin, Pencil, Trash2, Calendar, Map, CheckCircle, Clock, Wrench } from 'lucide-react';
 import { Customer, ServiceStatus, JobPriority } from '../types';
 
 interface CustomerCardProps {
@@ -10,8 +10,6 @@ interface CustomerCardProps {
 }
 
 export const CustomerCard: React.FC<CustomerCardProps> = ({ customer, onEdit, onDelete, onChangeStatus }) => {
-    const [isDeleting, setIsDeleting] = useState(false);
-
   const getStatusColor = (status: ServiceStatus) => {
     switch (status) {
       case 'Pending':
@@ -157,36 +155,13 @@ export const CustomerCard: React.FC<CustomerCardProps> = ({ customer, onEdit, on
             <Pencil className="w-4 h-4 text-slate-500" />
           </button>
           
-          {isDeleting ? (
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-[10px] uppercase font-bold text-slate-400 mr-1">Sure?</span>
-              <button
-                onClick={() => setIsDeleting(false)}
-                className="p-2 border bg-white border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                title="Cancel"
-              >
-                <X className="w-4 h-4 text-slate-500" />
-              </button>
-              <button
-                onClick={() => {
-                  onDelete(customer.id);
-                  setIsDeleting(false);
-                }}
-                className="p-2 border bg-red-600 border-red-600 rounded-lg hover:bg-red-700 text-white transition-colors"
-                title="Confirm Delete"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setIsDeleting(true)}
-              className="p-2 border bg-white border-red-100 rounded-lg hover:bg-red-50 text-red-500 transition-colors ml-auto"
-              title="Delete"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
+          <button
+            onClick={() => onDelete(customer.id)}
+            className="p-2 border bg-white border-red-100 rounded-lg hover:bg-red-50 text-red-500 transition-colors ml-auto"
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>

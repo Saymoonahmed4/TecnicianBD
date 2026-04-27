@@ -4,6 +4,9 @@ import { Customer, ServiceStatus } from './types';
 import { DashboardStats } from './components/DashboardStats';
 import { CustomerCard } from './components/CustomerCard';
 import { CustomerForm } from './components/CustomerForm';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { db } from './firebase';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 
 export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -12,41 +15,90 @@ export default function App() {
   
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | undefined>();
+  const [customerToDelete, setCustomerToDelete] = useState<string | null>(null);
 
-  // Load from local storage
+  // Load from Firebase
   useEffect(() => {
-    const saved = localStorage.getItem('tecnicianbd_customers');
-    if (saved) {
-      try {
-        setCustomers(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse customers from localStorage', e);
-      }
-    }
+    const q = collection(db, 'customers');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const customersData: Customer[] = [];
+      snapshot.forEach((doc) => {
+        customersData.push(doc.data() as Customer);
+      });
+      setCustomers(customersData);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // Save to local storage
+  // Migration logic (Local Storage to Firebase)
   useEffect(() => {
-    localStorage.setItem('tecnicianbd_customers', JSON.stringify(customers));
-  }, [customers]);
+    const migrateData = async () => {
+      const migrated = localStorage.getItem('tecnicianbd_migrated_to_firebase');
+      if (!migrated) {
+        const saved = localStorage.getItem('tecnicianbd_customers');
+        if (saved) {
+          try {
+            const localCustomers = JSON.parse(saved) as Customer[];
+            if (localCustomers.length > 0) {
+              const docs = await getDocs(collection(db, 'customers'));
+              if (docs.empty) {
+                // Migrate batch sequentially to avoid spamming too fast
+                // or just `Promise.all` but let's keep it simple
+                for (const c of localCustomers) {
+                  await setDoc(doc(db, 'customers', c.id), c);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Migration failed:', e);
+          }
+        }
+        localStorage.setItem('tecnicianbd_migrated_to_firebase', 'true');
+      }
+    };
+    migrateData();
+  }, []);
 
-  const handleSaveCustomer = (customer: Customer) => {
-    if (editingCustomer) {
-      setCustomers(customers.map((c) => (c.id === customer.id ? customer : c)));
-    } else {
-      setCustomers([customer, ...customers]);
+  const handleSaveCustomer = async (customer: Customer) => {
+    try {
+      await setDoc(doc(db, 'customers', customer.id), customer);
+      closeForm();
+    } catch (e) {
+      console.error('Error saving customer:', e);
+      alert('Failed to save to cloud.');
     }
-    closeForm();
   };
 
-  const handleDeleteCustomer = (id: string) => {
-    setCustomers(customers.filter((c) => c.id !== id));
+  const confirmDelete = (id: string) => {
+    setCustomerToDelete(id);
   };
 
-  const handleChangeStatus = (id: string, newStatus: ServiceStatus) => {
-    setCustomers(customers.map((c) => 
-      c.id === id ? { ...c, status: newStatus } : c
-    ));
+  const executeDelete = async () => {
+    if (customerToDelete) {
+      try {
+        await deleteDoc(doc(db, 'customers', customerToDelete));
+        setCustomerToDelete(null);
+      } catch (e) {
+        console.error('Error deleting customer:', e);
+        alert('Failed to delete from cloud.');
+      }
+    }
+  };
+
+  const cancelDelete = () => {
+    setCustomerToDelete(null);
+  };
+
+  const handleChangeStatus = async (id: string, newStatus: ServiceStatus) => {
+    const customer = customers.find(c => c.id === id);
+    if (customer) {
+      try {
+        await setDoc(doc(db, 'customers', id), { ...customer, status: newStatus });
+      } catch (e) {
+        console.error('Error updating status:', e);
+        alert('Failed to update status.');
+      }
+    }
   };
 
   const openFormForAdd = () => {
@@ -83,7 +135,7 @@ export default function App() {
           <h1 className="text-3xl font-extrabold text-blue-900 tracking-tight">
             Tecnician<span className="text-blue-500">bd</span>
           </h1>
-          <p className="text-slate-500 text-sm mt-1">AC Servicing Management System • <span className="font-semibold">Offline Mode</span></p>
+          <p className="text-slate-500 text-sm mt-1">AC Servicing Management System • <span className="font-semibold text-blue-500">Cloud Synced</span></p>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
@@ -145,7 +197,7 @@ export default function App() {
                     key={customer.id}
                     customer={customer}
                     onEdit={openFormForEdit}
-                    onDelete={handleDeleteCustomer}
+                    onDelete={confirmDelete}
                     onChangeStatus={handleChangeStatus}
                   />
                 ))}
@@ -178,9 +230,9 @@ export default function App() {
       <footer className="mt-6 pt-4 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center text-[10px] text-slate-400 font-bold tracking-wider uppercase gap-2 w-full max-w-7xl mx-auto">
         <p>© {new Date().getFullYear()} TECNICIANBD DASHBOARD</p>
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-green-500"></div>
-            LOCAL-FIRST ACTIVE
+          <span className="flex items-center gap-1.5 text-blue-500">
+            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+            CLOUD SYNC ACTIVE
           </span>
         </div>
       </footer>
@@ -193,6 +245,15 @@ export default function App() {
           onCancel={closeForm}
         />
       )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={customerToDelete !== null}
+        title="Delete Job Entry"
+        message="Are you sure you want to delete this job? This action cannot be undone."
+        onConfirm={executeDelete}
+        onCancel={cancelDelete}
+      />
     </div>
   );
 }
